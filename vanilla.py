@@ -22,7 +22,7 @@ Simple web app engine, designed by Hao Feng (whisperaven@gmail.com).
     TODOs:
       1, A better Template/ORM Adapter implementation.
       2, Support/Handle Http better.
-           -> e.g.: Cookie/POST/Upload/Error/Chunk/If-Modified-Since/etc.
+           -> e.g.: Cookie/Upload/Error/Chunk/If-Modified-Since/etc.
       3, A better RequestRule/RequestRouter object.
 """
 
@@ -79,6 +79,22 @@ def b2u(string, encoding="utf8", errors="strict"):
     else:
         return string
 
+## Http Helper Descriptor ##
+class InvokeOnAccessProperty(object):
+    """ Invoke wrapped object method when first access,
+            and use its return value as property on future access """
+
+    def __init__(self, object_method):
+        """ Wrap up the object method """
+        self.wrapped_method = object_method
+        self.__doc__ = getattr(object_method, '__doc__')
+
+    def __get__(self, instance, cls):
+        """ Magic `get` method for python descriptor protocol """
+        rv = self.wrapped_method(instance)
+        instance.__dict__[self.wrapped_method.__name__] = rv
+        return rv
+
 ## Exception ##
 class VanillaError(Exception):
     """ Base Exception for everything """
@@ -114,20 +130,27 @@ class Engine(object):
                         appPrefix=os.getcwd(), 
                         appStatic="static", 
                         appTemplate="templates",
-                        appTemplateAdapter=TemplateAdapter,
-                      **appTemplateAdapterOptions):
+                        appTemplateAdapter=None,
+                        appTemplateAdapterOptions=dict()):
         """ Init new App instance """
 
         self.name        = appName
         self.prefix      = appPrefix
-        self.static      = os.path.join(self.prefix, appStatic)
-        self.template    = os.path.join(self.prefix, appTemplate)
+        self.static      = appStatic
+        self.template    = appTemplate
 
-        self.tpl         = appTemplateAdapter(tpl_dir=[self.template,], 
-                                                **appTemplateAdapterOptions)
         self.http        = HttpContext()
         self.router      = RequestRouter()
         self.err_handler = dict()
+
+        if os.path.isabs(self.static):
+            self.static   = os.path.join(self.prefix, self.static)
+        if os.path.isabs(self.template):
+            self.template = os.path.join(self.prefix, self.template)
+
+        if appTemplateAdapter:
+            self.tpl     = appTemplateAdapter(tpl_dir=[self.template,], 
+                                                **appTemplateAdapterOptions)
 
     def __call__(self, environ, start_response):
         """ WSGI compatible callable object """
@@ -215,6 +238,7 @@ class Engine(object):
         except:
             self.http.response = HttpError(500)
 
+
         # something wrong, which means we got http error response:
         status_code = self.http.response.status_code
         err_handler = self.err_handler.get(int(status_code), None)
@@ -277,7 +301,7 @@ class RequestRouter(object):
         method = method.upper()
         if method not in _HTTP_METHOD:
             raise RouterError("Request method %s for callback %s not supported." % 
-                                                        (method, callback.__name__))
+                                                    (method, callback.__name__))
 
         rule = RequestRule(regex, callback)
         self.method_table[method].append(rule)
@@ -352,7 +376,11 @@ class HttpContext(object):
 class HttpRequest(object):
     """ Http Request object, a wrapper of environ dict """
 
-    __slots__ = ('environ')
+    ## TODO: make it work with `__slots__` for save space
+    #   Because the descriptor decorator `InvokeOnAccessProperty` needs access
+    #   the attr `__dict__` when method `request_data` was wrapped, so we can't 
+    #   use `__slots__` here.
+    # __slots__ = ('environ')
 
     def __init__(self, environ):
         """ Wrapper the environ dict """
@@ -452,13 +480,13 @@ class HttpRequest(object):
         return self.environ.get('wsgi.file_wrapper', None)
 
     ## User post data ##
-    @property
+    @InvokeOnAccessProperty
     def request_data(self):
         """ Read all request data at once """
 
         content_type = self.get_header("content-type")
         content_length = self.get_header("content-length")
-        content_data_fp = environ.get('wsgi.input', None)
+        content_data_fp = self.environ.get('wsgi.input', None)
 
         # TODO: Still need handle content-type here, 
         #   and Http Transfer-Encoding/Chunked support here,
@@ -466,7 +494,7 @@ class HttpRequest(object):
         if not content_length:
             content_length = 0
 
-        return request_data_fp.read(int(content_length))
+        return content_data_fp.read(int(content_length))
 
 ## Http Response ##
 class HttpResponse(object):

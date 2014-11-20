@@ -18,14 +18,16 @@ class MakoTemplateAdapter(TemplateAdapter):
     def render(self, tpl, **tpl_args):
         tpl = self.lookup.get_template(tpl)
         return tpl.render(**tpl_args)
+
+TemplateAdapterOptions = {'module_directory': "/tmp/mako_modules",
+                            'collection_size': 350}
         
 # App:
 app = Engine("whisperaven", 
                 appStatic="static",
                 appTemplate="templates",
                 appTemplateAdapter=MakoTemplateAdapter,
-                    module_directory = "/tmp/mako_modules",
-                    collection_size  = 350)
+                appTemplateAdapterOptions=TemplateAdapterOptions)
 
 # StaticFiles:
 @app.route("/static/(.*)$")
@@ -33,41 +35,45 @@ def static_files(filename):
     return app.ssfile(filename)
 
 # Index:
-@app.route("/index$", method = "GET")
+#@app.route("/index$", method = "GET")
 def index():
     return app.tpl.render("index.tpl")
+app.route("/index$", method = "GET", callback = index)
 
 # UrlArgs:
-@app.route("/project/(.*)$")
-def project(project_name):
-    return app.tpl.render("project.tpl", name = project_name)
+@app.route("/urlarg/(.*)$")
+def urlarg(arg):
+    return app.tpl.render("urlarg.tpl", argstr = arg)
 
 # PostData:
-@app.route("/upload$")
+@app.route("/postdata$")
 def upload():
     data = app.http.request.request_data
-    return app.tpl.render("upload.tpl", name = data)
+    return app.tpl.render("postdata.tpl", userdata = data)
 
 # Error Pages:
 @app.error_page(400)
 def error_400_page():
-    return app.tpl.render("error_page.tpl", error_code = 400, 
+    return app.tpl.render("error_page.tpl", 
+                            error_code = app.http.response.status_code, 
                             error_reason = "Bad Request")
 
 @app.error_page(403)
 def error_403_page():
-    return app.tpl.render("error_page.tpl", error_code = 403, 
+    return app.tpl.render("error_page.tpl",
+                            error_code = app.http.response.status_code, 
                             error_reason = "Forbidden")
 
 @app.error_page(404)
 def error_404_page():
-    return app.tpl.render("error_page.tpl", error_code = 404, 
+    return app.tpl.render("error_page.tpl",
+                            error_code = app.http.response.status_code, 
                             error_reason = "Not Found")
 
 @app.error_page(500)
 def error_500_page():
     return app.tpl.render("error_page.tpl", error_code = 500, 
-                            error_reason = "Internal Server Error")
+                            error_reason = app.http.response.body)
 
 ## WSGI ##
 if __name__ == '__main__':
