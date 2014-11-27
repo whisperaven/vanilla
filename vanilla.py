@@ -24,6 +24,7 @@ Simple web app engine, designed by Hao Feng (whisperaven@gmail.com).
       2, Support/Handle Http better.
            -> e.g.: Cookie/Upload/Error/Chunk/If-Modified-Since/etc.
       3, A better RequestRule/RequestRouter object.
+      4, Error traceback support for debug usage.
 """
 
 import os
@@ -32,6 +33,7 @@ import sys
 import time
 import socket
 import mimetypes
+import traceback
 
 from copy import deepcopy
 from threading import local
@@ -143,9 +145,9 @@ class Engine(object):
         self.router      = RequestRouter()
         self.err_handler = dict()
 
-        if os.path.isabs(self.static):
+        if not os.path.isabs(self.static):
             self.static   = os.path.join(self.prefix, self.static)
-        if os.path.isabs(self.template):
+        if not os.path.isabs(self.template):
             self.template = os.path.join(self.prefix, self.template)
 
         if appTemplateAdapter:

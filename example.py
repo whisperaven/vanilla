@@ -19,7 +19,7 @@ class MakoTemplateAdapter(TemplateAdapter):
         tpl = self.lookup.get_template(tpl)
         return tpl.render(**tpl_args)
 
-TemplateAdapterOptions = {'module_directory': "/tmp/mako_modules",
+MakoTemplateAdapterOptions = {'module_directory': "/tmp/mako_modules",
                             'collection_size': 350}
         
 # App:
@@ -27,7 +27,7 @@ app = Engine("whisperaven",
                 appStatic="static",
                 appTemplate="templates",
                 appTemplateAdapter=MakoTemplateAdapter,
-                appTemplateAdapterOptions=TemplateAdapterOptions)
+                appTemplateAdapterOptions=MakoTemplateAdapterOptions)
 
 # StaticFiles:
 @app.route("/static/(.*)$")
