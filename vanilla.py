@@ -12,25 +12,32 @@ Simple web app engine, designed by Hao Feng (whisperaven@gmail.com).
         so any suggestions are welcome!
 
     Known Issues:
-      -> Error handling is not good. 
+      -> Error handling is not good enough and No debug support. 
         -> HttpError(), should have some error info and python traceback.
       -> The WSGI handler and Http support is not good enough.
         -> The RequestRouter maybe too simple.
-        -> Not support Cookie/POST/UploadFile.
-      -> No Debug support.
+        -> Not support Cookie/UploadFile.
 
     TODOs:
-      1, A better Template/ORM Adapter implementation.
-      2, Support/Handle Http better.
-           -> e.g.: Cookie/Upload/Error/Chunk/If-Modified-Since/etc.
-      3, A better RequestRule/RequestRouter object.
-      4, Error traceback support for debug usage.
+      1, Adapter implementation:
+        -> Template Adapter             - DONE
+        -> Server Adapter
+        -> ORM Adapter                  - PENDING
+      2, Support more Http header: 
+        -> Chunked transfer encoding
+        -> If-Modified-Since
+      3, Middleware hooks:
+        -> Http Request preprocessor    - DONE
+        -> Http Request postprocessor   - DONE
+        -> Other hooks.
+      3, HttpError with Error traceback for debug usage.
 """
 
 import os
 import re
 import sys
 import time
+import json
 import socket
 import mimetypes
 import traceback
@@ -41,11 +48,12 @@ from threading import local
 try:                # Py2
     import httplib
     import __builtin__ as builtins
-    from inspect import getargspec
+    from inspect import getargspec as getfullargspec
 except ImportError: # Py3
     import http.client as httplib
     import builtins
-    from inspect import getfullargspec as getargspec
+    from inspect import getfullargspec
+
 
 ## Compatible issues ##
 if "unicode" not in dir(builtins):
@@ -53,113 +61,133 @@ if "unicode" not in dir(builtins):
 else:
     bytes   = str
        
+
 ## Http ##
 _HTTP_PORT   = socket.getservbyname("http")
 _HTTP_METHOD = ["GET", "POST", "PUT", "DELETE", "TRACE",
                     "CONNECT", "OPTION",]
 _HTTP_STATUS = deepcopy(httplib.responses)
-_HTTP_ERROR_PAGE_CONTENT = "<html><title>oops</title><body>Http Error occurred</body></html>"
+_HTTP_ERROR_PAGE_CONTENT = "<html><title>oops</title>" \
+                            "<body>Http Error occurred</body></html>"
+
 
 ## Helper ##
 def _errno():
-    """ Compatible with old versions which doesn't have the `as` keyword """
+    """ Compatible with old versions which doesn't have the `as` keyword. """
     return sys.exc_info()[1]
+
 
 def u2b(string, encoding="utf8", errors="strict"):
     """ Covert unicode/str to str/bytes, 
-            if string already encoded, do nothing """
+            if string already encoded, do nothing. """
     if isinstance(string, unicode):
         return string.encode(encoding, errors)
     else:
         return string
 
+
 def b2u(string, encoding="utf8", errors="strict"):
     """ Covert str/bytes to unicode/str, 
-            if string already decoded, do nothing """
+            if string already decoded, do nothing. """
     if isinstance(string, bytes):
         return string.decode(encoding, errors)
     else:
         return string
 
+
 ## Http Helper Descriptor ##
 class InvokeOnAccessProperty(object):
     """ Invoke wrapped object method when first access,
-            and use its return value as property on future access """
+            and use its return value as property on future access. """
 
     def __init__(self, object_method):
-        """ Wrap up the object method """
+        """ Wrap up the object method. """
         self.wrapped_method = object_method
         self.__doc__ = getattr(object_method, '__doc__')
 
     def __get__(self, instance, cls):
-        """ Magic `get` method for python descriptor protocol """
+        """ Magic `get` method for python descriptor protocol. """
         rv = self.wrapped_method(instance)
         instance.__dict__[self.wrapped_method.__name__] = rv
         return rv
 
+
 ## Exception ##
 class VanillaError(Exception):
-    """ Base Exception for everything """
+    """ Base Exception for everything. """
     pass
 
+
 class EngineError(VanillaError):
-    """ Base Exception for Engine errors """
+    """ Base Exception for Engine errors. """
+
 
 class RouterError(VanillaError):
-    """ Base Exception for Router errors """
+    """ Base Exception for Router errors. """
+
 
 ## TemplateEngineAdapter ##
 class TemplateAdapter(object):
-    """ Template Engine """
+    """ Template Engine. """
 
-    def __init__(self, tpl_dir=[], **options):
-        """ Prepare template adapter """
-        self.prepare(tpl_dir, **options)
+    def __init__(self, dirs, **options):
+        """ Prepare template adapter. """
+        self.prepare(dirs, **options)
 
-    def prepare(self, tpl_dir, **opt):
-        """ Userdefine template adapter prepare method """
+    def prepare(self, dirs, **opt):
+        """ Userdefine template adapter prepare method. """
         raise NotImplementedError
 
     def render(self, tpl, **tpl_args):
-        """ Userdefine template render method """
+        """ Userdefine template render method. """
         raise NotImplementedError
+
 
 ## AppEngine ##
 class Engine(object):
-    """ The engine object for create app instance """
+    """ The engine object for create app instance. """
 
-    def __init__(self, appName, 
+    def __init__(self, appName, appDebug=False,
                         appPrefix=os.getcwd(), 
                         appStatic="static", 
                         appTemplate="templates",
                         appTemplateAdapter=None,
                         appTemplateAdapterOptions=dict()):
-        """ Init new App instance """
+        """ Init new App instance. """
 
         self.name        = appName
         self.prefix      = appPrefix
         self.static      = appStatic
-        self.template    = appTemplate
+        self.template    = list()
 
+        self.debug       = appDebug
         self.http        = HttpContext()
         self.router      = RequestRouter()
         self.err_handler = dict()
 
+        self.request_preprocessor = list()
+        self.request_postprocessor = list()
+
         if not os.path.isabs(self.static):
             self.static   = os.path.join(self.prefix, self.static)
-        if not os.path.isabs(self.template):
-            self.template = os.path.join(self.prefix, self.template)
+
+        appTemplate = appTemplate if isinstance(appTemplate, (list, tuple)) \
+                                        else (appTemplate,)
+        for template in appTemplate:
+            if not os.path.isabs(template):
+                template = os.path.join(self.prefix, template)
+            self.template.append(template)
 
         if appTemplateAdapter:
-            self.tpl     = appTemplateAdapter(tpl_dir=[self.template,], 
+            self.tpl     = appTemplateAdapter(dirs=self.template, 
                                                 **appTemplateAdapterOptions)
 
     def __call__(self, environ, start_response):
-        """ WSGI compatible callable object """
+        """ WSGI compatible callable object. """
         return self.wsgi(environ, start_response)
 
     def ssfile(self, filepath, mime_type=None, prefix=None):
-        """ Static file sender """
+        """ Static file sender. """
         
         if prefix is None:
             prefix = self.static
@@ -183,22 +211,23 @@ class Engine(object):
         response.set_header("Last-Modified", 
                                 time.strftime("%a, %d %b %Y %H:%M:%S GMT", 
                                                 time.gmtime(filestat.st_mtime)))
+
         return open(filepath, 'rb')
 
-    def route(self, regex, method="GET", callback=None):
-        """ Insert new rule to Router """
+    def route(self, regex, methods=["GET"], callback=None):
+        """ Insert new rule to Router. """
 
         if callback is not None:
-            self.router.insert(method, regex, callback)
+            self.router.insert(methods, regex, callback)
             return 0
 
         def _add_rule(callback):
-            self.router.insert(method, regex, callback)
+            self.router.insert(methods, regex, callback)
 
         return _add_rule
 
     def error_page(self, http_error_code, callback=None):
-        """ Register error handler for http error such as 404/500 """
+        """ Register error handler for http error such as 404/500. """
         
         if callback is not None:
             self.err_handler[int(http_error_code)] = callback
@@ -209,8 +238,33 @@ class Engine(object):
 
         return _register_error_handler
 
+    def pre_request(self, callback):
+        """ Register handler as each http request preprocessor. 
+        
+            While the handler invoked, you can access the http 
+            request  via `engine.http.request` and the http 
+            response via `engine.http.response`.
+            
+            But when something goes wrong, the engine will create
+            a new HttpResponse instance as error response, at this
+            point, everything you done to the `engine.http.response` 
+            will all gone. """
+        self.request_preprocessor.append(callback)
+
+    def post_request(self, callback):
+        """ Register handler as each http request postprocessor.
+        
+            Like the `pre_request`, you can access the http content,
+            and you can access the response buf (which returned by the
+            request handler callback) via the `engine.http.response.body`.
+            
+            Remember, if this is a static file returned by the callback, 
+            it is a standard python File-like Object and you should't
+            change that. """
+        self.request_postprocessor.append(callback)
+
     def wsgi(self, environ, start_response):
-        """ WSGI Handler """
+        """ WSGI Handler. """
 
         buf      = self._request_handler(environ)
         response = self._make_output(buf)
@@ -220,16 +274,18 @@ class Engine(object):
         
     def _request_handler(self, environ):
         """ Handle request and init request/response instance and return 
-                response buf """
+                response buffer. """
 
         self.http.request = HttpRequest(environ)
+        self.http.response = HttpResponse()
+
+        if self.request_preprocessor:
+            for processor in self.request_preprocessor:
+                processor()
 
         try:
-
             rule = self.router.match(self.http.request.method, 
-                                        self.http.request.path)
-            self.http.response = HttpResponse()
-
+                                            self.http.request.path)
             # Everything is fine, invkoe callback and return response buf.
             return rule.make_call(self.http.request.path)
 
@@ -237,9 +293,9 @@ class Engine(object):
         except HttpError:
             self.http.response = _errno()
         # Other unexpected error, treat as http error 500.
+        #   TODO: Here needs some trackback object.
         except:
             self.http.response = HttpError(500)
-
 
         # something wrong, which means we got http error response:
         status_code = self.http.response.status_code
@@ -262,6 +318,11 @@ class Engine(object):
     def _make_output(self, buf):
         """ Parse response buf, make sure response instance WSGI compatible. """
         
+        self.http.response.body = buf
+        if self.request_postprocessor:
+            for processor in self.request_postprocessor:
+                processor()
+
         request  = self.http.request
         response = self.http.response
 
@@ -284,63 +345,70 @@ class Engine(object):
 
         # Normal content.
         response.body = [u2b(buf)]
+
         return response
 
         
 ## Request Router ##
 class RequestRouter(object):
-    """ The router object for url match/dispatching """
+    """ The router object for url match/dispatching. """
 
     def __init__(self):
-        """ Init new router instance """
+        """ Create the route table. """
         self.method_table = dict()
         for method in _HTTP_METHOD:
             self.method_table[method] = list()
 
-    def insert(self, method, regex, callback):
-        """ Insert rule into corresponding method table """
+    def insert(self, methods, regex, callback):
+        """ Insert rule into corresponding method table. """
 
-        method = method.upper()
-        if method not in _HTTP_METHOD:
-            raise RouterError("Request method %s for callback %s not supported." % 
-                                                    (method, callback.__name__))
+        if not isinstance(methods, list):
+            methods = [methods]
 
-        rule = RequestRule(regex, callback)
-        self.method_table[method].append(rule)
+        for method in methods:
+            method = method.upper()
+            if method not in _HTTP_METHOD:
+                raise RouterError("Request method %s "
+                                        "for callback %s not supported." % 
+                                                (method, callback.__name__))
+
+            rule = RequestRule(regex, callback)
+            self.method_table[method].append(rule)
 
     def match(self, method, url):
-        """ Match rule with url """
+        """ Match rule with url. """
 
         for rule in self.method_table[method]:
             if rule.regex.match(url):
                 return rule
 
         # No match found, because `GET` table is the default table,
-        #   so we search `GET` table for non `GET` request.
-        if method is not 'GET':
+        #   so we search `GET` table for `HEAD` request.
+        if method is 'HEAD':
             return self.match('GET', url)
 
         # We got nothing, raise 404 error.
         raise HttpError(404)
 
+
 ## Request Rule ##
 class RequestRule(object):
-    """ Rule object for warp callback function with regex and some metadata """
+    """ Rule object for warp callback function with regex and some metadata. """
 
     def __init__(self, regex, callback):
-        """ Compile regex and prepare callback """
+        """ Compile regex and prepare callback. """
 
         self.regex         = re.compile(regex)
         self.handler       = callback
         self.handler_args  = None
 
         # Gather info about our callback
-        spec = getargspec(callback)
+        spec = getfullargspec(callback)
         if spec.args:
             self.handler_args = spec.args
 
     def update_args(self, url):
-        """ Set the args """
+        """ Set the args. """
 
         if not self.handler_args:
             return dict()
@@ -351,41 +419,42 @@ class RequestRule(object):
         return args
 
     def make_call(self, url):
-        """ Invoke callback with args """
-        args = self.update_args(url)
-        return self.handler(**args)
+        """ Invoke callback with args. """
+        return self.handler(**self.update_args(url))
+
 
 ## Http Context ##
 class HttpContext(object):
-    """ ThreadSafe HttpContext (e.g: Request/Response) access """
+    """ ThreadSafe HttpContext (e.g: Request/Response) access. """
 
     def __init__(self):
-        """ Init the thread local object """
+        """ Create the thread local object. """
         object.__setattr__(self, "thread_ctx", local())
 
     def __getattr__(self, name):
-        """ Return http context, raise AttributeError if context not exists """
+        """ Return http context, raise AttributeError if context not exists. """
         try:
             return self.thread_ctx.__dict__[name]
         except KeyError:
             raise AttributeError("%s, no such context" % name)
 
     def __setattr__(self, name, value):
-        """ Associate http context """
+        """ Associate http context. """
         self.thread_ctx.__dict__[name] = value
+
 
 ## Http Request ##
 class HttpRequest(object):
-    """ Http Request object, a wrapper of environ dict """
+    """ Http Request object, a wrapper of environ dict. """
 
     ## TODO: make it work with `__slots__` for save space
-    #   Because the descriptor decorator `InvokeOnAccessProperty` needs access
-    #   the attr `__dict__` when method `request_data` was wrapped, so we can't 
-    #   use `__slots__` here.
+    #   Because the descriptor decorator `InvokeOnAccessProperty` needs 
+    #   access the attr `__dict__` when method `request_data` was wrapped, 
+    #   so we can't use `__slots__` here.
     # __slots__ = ('environ')
 
     def __init__(self, environ):
-        """ Wrapper the environ dict """
+        """ Wrapper the environ dict. """
         self.environ = environ
 
     @property
@@ -439,7 +508,7 @@ class HttpRequest(object):
     ## Http Request Headers Access ##
     def _environ_header_key(self, request_header):
         """ Make the header indexable in environ dict 
-                by add "HTTP_" prefix and replace "-" with "_" """
+                by add `HTTP_` prefix and replace `-` with `_`. """
 
         request_header = request_header.upper()
         # These headers without the "HTTP_" prefix: #
@@ -451,12 +520,12 @@ class HttpRequest(object):
             return "HTTP_" + request_header.replace("-", "_")
 
     def has_header(self, request_header):
-        """ Header exists test """
+        """ Header exists test. """
         return self._environ_header_key(request_header) in environ.keys()
 
     def get_header(self, request_header):
         """ Get value of header, raise AttributeError if header doesn't 
-                exists in environ """
+                exists in environ. """
         try:
             return self.environ[self._environ_header_key(request_header)]
         except KeyError:
@@ -466,25 +535,25 @@ class HttpRequest(object):
     ## Process or Thread ##
     @property
     def is_multithread(self):
-        """ Return True if Server is multithreaded """
+        """ Return True if Server is multithreaded. """
         return self.environ.get('wsgi.multithread', False)
 
     @property
     def is_multiporcess(self):
-        """ Return True if Server is multiprocess """
+        """ Return True if Server is multiprocess. """
         return self.environ.get('wsgi.multiprocess', False)
 
     ## Server file wrapper ##
     @property
     def file_wrapper(self):
         """ Return wsgi.file_wrapper function or return None if server not 
-                support file_wrapper """
+                support file_wrapper. """
         return self.environ.get('wsgi.file_wrapper', None)
 
     ## User post data ##
     @InvokeOnAccessProperty
-    def request_data(self):
-        """ Read all request data at once """
+    def data(self):
+        """ Read all request data at once. """
 
         content_type = self.get_header("content-type")
         content_length = self.get_header("content-length")
@@ -496,28 +565,38 @@ class HttpRequest(object):
         if not content_length:
             content_length = 0
 
-        return content_data_fp.read(int(content_length))
+        return b2u(content_data_fp.read(int(content_length)))
+
+    @property
+    def json_data(self):
+        """ Dump request data (which should be json here) 
+                into standard python dict. """
+        try:
+            return json.loads(self.data)
+        except:
+            return None
+
 
 ## Http Response ##
 class HttpResponse(object):
-    """ Http Response object, everything about http response """
+    """ Http Response object, everything about http response. """
 
     default_content_type = "text/html; charset=UTF-8"
 
     def __init__(self, status=200, body=""):
-        """ Init Http Response with default attributes """
+        """ Init Http Response with default attributes. """
         self.status  = status
         self.headers = dict()
         self.body    = body
 
     @property
     def status_code(self):
-        """ Http Response status code """
+        """ Http Response status code. """
         return self.status
 
     @property
     def status_line(self):
-        """ Build/Return a http Status-Line """
+        """ Build/Return a http `Status-Line`. """
         try:
             return "%d %s" % (self.status, _HTTP_STATUS[self.status])
         except KeyError:
@@ -525,7 +604,7 @@ class HttpResponse(object):
 
     @property
     def header_fields(self):
-        """ WSGI compatible list contain all response header fields """
+        """ WSGI compatible list contain all response header fields. """
 
         header_fields = list()
         if "Content-Type" not in self.headers.keys():
@@ -537,7 +616,7 @@ class HttpResponse(object):
         return header_fields
 
     def set_status(self, status_code):
-        """ Set current status code to status_code """
+        """ Set current status code to status_code. """
         try:
             self.status = int(status_code)
         except ValueError:
@@ -546,25 +625,32 @@ class HttpResponse(object):
             raise err
 
     def get_header(self, name):
-        """ Return a response header's value or return None if no such header """
+        """ Return a response header's value 
+                or return None if no such header. """
         try:
             return self.headers[name]
         except KeyError:
             return None
 
     def add_header(self, name, value):
-        """ Add a response header to response but doesn't check for duplicates """
+        """ Add a response header to response 
+                but doesn't check for duplicates. """
         if name not in self.headers.keys():
             self.headers[name] = list()
         self.headers[name].append(value)
 
     def set_header(self, name, value):
-        """ Create or replacing an exists header's value """
+        """ Create or replacing an exists header's value. """
         self.headers[name] = [value]
+
+    def set_content_type(self, mime_type):
+        """ Set the http `Content-Type` header to `mime_type`. """
+        self.set_header("Content-Type", mime_type)
+
 
 ## Http Error Rsponse ##
 class HttpError(HttpResponse, VanillaError):
-    """ Http error response """
+    """ Http error response. """
 
     def __init__(self, status=500, body=""):
         super(HttpError, self).__init__(status, body)

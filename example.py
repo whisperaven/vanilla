@@ -12,8 +12,8 @@ from vanilla import Engine, TemplateAdapter
 class MakoTemplateAdapter(TemplateAdapter):
     """ Mako Template Wrapper """
 
-    def prepare(self, tpl_dir, **opt):
-        self.lookup = TemplateLookup(tpl_dir, **opt)
+    def prepare(self, dirs, **opt):
+        self.lookup = TemplateLookup(dirs, **opt)
 
     def render(self, tpl, **tpl_args):
         tpl = self.lookup.get_template(tpl)
@@ -23,11 +23,27 @@ MakoTemplateAdapterOptions = {'module_directory': "/tmp/mako_modules",
                             'collection_size': 350}
         
 # App:
-app = Engine("whisperaven", 
+app = Engine("VanillaExample", 
+                appDebug=False,
                 appStatic="static",
                 appTemplate="templates",
                 appTemplateAdapter=MakoTemplateAdapter,
                 appTemplateAdapterOptions=MakoTemplateAdapterOptions)
+
+# Hooks:
+@app.pre_request
+def pre_request_processor():
+    response = app.http.response
+    # If http error, you can't see this header in response.
+    #   because the Engine replace the response instance with
+    #   a new HttpError instance.
+    response.add_header('framework-pre-set', 'vanilla')
+
+@app.post_request
+def post_request_processor():
+    response = app.http.response
+    # You can always see this header in response.
+    response.add_header('framework-post-set', 'vanilla')
 
 # StaticFiles:
 @app.route("/static/(.*)$")
@@ -35,21 +51,23 @@ def static_files(filename):
     return app.ssfile(filename)
 
 # Index:
-#@app.route("/index$", method = "GET")
+#   You specify methods via `methods`, accept both `list` and `str`.
+@app.route("/index$", methods="GET")
 def index():
     return app.tpl.render("index.tpl")
-app.route("/index$", method = "GET", callback = index)
+# Also work: 
+#   app.route("/index$", method = "GET", callback = index)
 
 # UrlArgs:
 @app.route("/urlarg/(.*)$")
 def urlarg(arg):
-    return app.tpl.render("urlarg.tpl", argstr = arg)
+    return app.tpl.render("urlarg.tpl", argstr=arg)
 
 # PostData:
-@app.route("/postdata$")
+@app.route("/postdata$", methods = ["POST"])
 def upload():
-    data = app.http.request.request_data
-    return app.tpl.render("postdata.tpl", userdata = data)
+    data = app.http.request.data
+    return app.tpl.render("postdata.tpl", userdata=data)
 
 # Error Pages:
 @app.error_page(400)
@@ -81,6 +99,7 @@ if __name__ == '__main__':
     from wsgiref.simple_server import make_server
 
     try:
+        print("Try to listening on port 8080...")
         server = make_server("localhost", 8080, app)
         server.serve_forever()
     except KeyboardInterrupt:

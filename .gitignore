@@ -2,8 +2,8 @@
 
 # Python:
 __pycache__/
-.*.pyc
+*.pyc
 
 # Misc:
-.*.swp
+*.swp
 tz*/
