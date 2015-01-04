@@ -28,7 +28,7 @@ Simple web app engine, designed by Hao Feng (whisperaven@gmail.com).
         -> Better `RequestRule` encapsulation and make it accessible
             in the http preprocessor(s).
         -> Other hooks.
-      3, HttpError with Error traceback for debug usage.
+      4, HttpError with Error traceback for debug usage.
         -> Catch all or leave some Exc alone.
 """
 
