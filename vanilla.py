@@ -25,7 +25,7 @@ Simple web app engine, designed by Hao Feng (whisperaven@gmail.com).
         -> Chunked transfer encoding
         -> If-Modified-Since
       3, Middleware hooks:
-        -> Better `RequestRule` encapsulation and make it access able
+        -> Better `RequestRule` encapsulation and make it accessible
             in the http preprocessor(s).
         -> Other hooks.
       3, HttpError with Error traceback for debug usage.
