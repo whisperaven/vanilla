@@ -8,28 +8,19 @@ Simple web app engine, designed by Hao Feng (whisperaven@gmail.com).
     2, Provide basic http context access (e.g.: request/response/cookie).
     3, Provide basic http tools (e.g.: static file sender).
 
-    In fact, I write this just for learn how things work, 
-        so any suggestions are welcome!
-
-    Known Issues:
-      -> Error handling is not good enough and No debug support. 
-        -> HttpError(), should have some error info and python traceback.
-      -> The WSGI handler and Http support is not good enough.
-        -> The RequestRouter maybe too simple.
-        -> Not support Cookie/UploadFile.
+    In fact, I write this just for learn how things work, any 
+        suggestions are welcome!
 
     TODOs:
-      1, Adapter implementation:
-        -> Server Adapter
-      2, Support more Http header: 
+      1, WSGI Server Adapter
+      2, Support more Http header/feature: 
         -> Chunked transfer encoding
         -> If-Modified-Since
-      3, Middleware hooks:
-        -> Better `RequestRule` encapsulation and make it accessible
-            in the http preprocessor(s).
-        -> Other hooks.
+        -> Cookie
+        -> File upload
+      3, Middleware hooks and a better RequestRule implementation.
+        -> Exception hooks.
       4, HttpError with Error traceback for debug usage.
-        -> Catch all or leave some Exc alone.
 """
 
 import os
@@ -121,6 +112,16 @@ class EngineError(VanillaError):
     """ Base Exception for Engine errors. """
 
 
+class HttpAbort(EngineError):
+    """ Abort the current http process. 
+        
+        See doc str of `Engine.abort` for more detail. """
+
+    def __init__(self, buf=""):
+        """ Abort context. """
+        self.buf = buf
+
+
 class RouterError(VanillaError):
     """ Base Exception for Router errors. """
 
@@ -148,6 +149,7 @@ class Engine(object):
 
     def __init__(self, appName="vanilla.latte", 
                         appDebug=False,
+                        appCatchExc=True,
                         appPrefix=os.getcwd(), 
                         appStatic="static", 
                         appTemplate="templates",
@@ -161,6 +163,7 @@ class Engine(object):
         self.template    = list()
 
         self.debug       = appDebug
+        self.catch       = appCatchExc
         self.http        = HttpContext()
         self.router      = RequestRouter()
         self.err_handler = dict()
@@ -243,7 +246,8 @@ class Engine(object):
         
             While the handler invoked, you can access the http 
             request  via `engine.http.request` and the http 
-            response via `engine.http.response`.
+            response via `engine.http.response` and also the 
+            request rule which going to invoked by the engine.
             
             But when something goes wrong, the engine will create
             a new HttpResponse instance as error response, at this
@@ -254,14 +258,30 @@ class Engine(object):
     def post_request(self, callback):
         """ Register handler as each http request postprocessor.
         
-            Like the `pre_request`, you can access the http content,
+            Like the `pre_request`, you can access the http context,
             and you can access the response buf (which returned by the
             request handler callback) via the `engine.http.response.body`.
             
-            Remember, if this is a static file returned by the callback, 
-            it is a standard python File-like Object and you should't
-            change that. """
+            But this/these hook(s) will not invoked when something wrong
+            (for example, if some exception raised by user callback, or some
+            http error occurred.), if you need handle errors, you should 
+            do that in `engine.error_page`.
+
+            Remember, if the `buf` is a static file returned by the 
+            callback, it is a standard python File-like Object and you 
+            should't change that. """
         self.request_postprocessor.append(callback)
+
+    def abort(self, buf):
+        """ Abort the current http request process.
+
+            Before you do that, you should set the response status 
+            code via `engine.http.response.set_status` if you want a
+            specify http status code.
+            
+            If you what you want is an error response, you should raise 
+            the `HttpError` exception instead of use this method. """
+        raise HttpAbort(buf)
 
     def wsgi(self, environ, start_response):
         """ WSGI Handler. """
@@ -279,22 +299,36 @@ class Engine(object):
         self.http.request = HttpRequest(environ)
         self.http.response = HttpResponse()
 
-        if self.request_preprocessor:
-            for processor in self.request_preprocessor:
-                processor()
-
         try:
+
             rule = self.router.match(self.http.request.method, 
                                             self.http.request.path)
-            # Everything is fine, invkoe callback and return response buf.
-            return rule.make_call(self.http.request.path)
+            # Pre-processor.
+            self.http.rule = rule
+            if self.request_preprocessor:
+                for processor in self.request_preprocessor:
+                    processor()
 
+            _buf = self.http.rule.make_call(self.http.request.path)
+            # Post-processor.
+            self.http.response.body = _buf
+            if self.request_postprocessor:
+                for processor in self.request_postprocessor:
+                    processor()
+
+            return self.http.response.body
+
+        except HttpAbort:
+            context = _errno()
+            return context.buf
         # Not Found or Forbidden or http error which raised by ourself.
         except HttpError:
             self.http.response = _errno()
         # Other unexpected error, treat as http error 500.
         #   TODO: Here needs some trackback object.
         except:
+            if not self.catch:
+                raise
             self.http.response = HttpError(500)
 
         # something wrong, which means we got http error response:
@@ -318,14 +352,8 @@ class Engine(object):
     def _make_output(self, buf):
         """ Parse response buf, make sure response instance WSGI compatible. """
         
-        self.http.response.body = buf
-        if self.request_postprocessor:
-            for processor in self.request_postprocessor:
-                processor()
-
         request  = self.http.request
         response = self.http.response
-        buf = response.body
 
         # This is a `HEAD` request.
         if request.method == "HEAD":
@@ -574,7 +602,7 @@ class HttpRequest(object):
         try:
             return json.loads(self.data)
         except:
-            return None
+            return {}
 
 
 ## Http Response ##

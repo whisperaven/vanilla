@@ -39,16 +39,19 @@ def pre_request_processor():
     #   a new HttpError instance.
     response.add_header('framework-pre-set', 'vanilla')
 
+
 @app.post_request
 def post_request_processor():
     response = app.http.response
     # You can always see this header in response.
     response.add_header('framework-post-set', 'vanilla')
 
+
 # StaticFiles:
 @app.route("/static/(.*)$")
 def static_files(filename):
     return app.ssfile(filename)
+
 
 # Index:
 #   You specify methods via `methods`, accept both `list` and `str`.
@@ -58,16 +61,25 @@ def index():
 # Also work: 
 #   app.route("/index$", method = "GET", callback = index)
 
+
 # UrlArgs:
 @app.route("/urlarg/(.*)$")
 def urlarg(arg):
     return app.tpl.render("urlarg.tpl", argstr=arg)
 
+
 # PostData:
-@app.route("/postdata$", methods = ["POST"])
+@app.route("/postdata$", methods=["POST"])
 def upload():
     data = app.http.request.data
     return app.tpl.render("postdata.tpl", userdata=data)
+
+
+# AbortRequest:
+@app.route("/abort$", methods="GET")
+def abort():
+    app.abort(app.tpl.render("abort.tpl"))
+
 
 # Error Pages:
 @app.error_page(400)
@@ -76,11 +88,13 @@ def error_400_page():
                             error_code = app.http.response.status_code, 
                             error_reason = "Bad Request")
 
+
 @app.error_page(403)
 def error_403_page():
     return app.tpl.render("error_page.tpl",
                             error_code = app.http.response.status_code, 
                             error_reason = "Forbidden")
+
 
 @app.error_page(404)
 def error_404_page():
@@ -88,10 +102,12 @@ def error_404_page():
                             error_code = app.http.response.status_code, 
                             error_reason = "Not Found")
 
+
 @app.error_page(500)
 def error_500_page():
     return app.tpl.render("error_page.tpl", error_code = 500, 
                             error_reason = app.http.response.body)
+
 
 ## WSGI ##
 if __name__ == '__main__':
