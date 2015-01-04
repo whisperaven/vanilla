@@ -20,17 +20,16 @@ Simple web app engine, designed by Hao Feng (whisperaven@gmail.com).
 
     TODOs:
       1, Adapter implementation:
-        -> Template Adapter             - DONE
         -> Server Adapter
-        -> ORM Adapter                  - PENDING
       2, Support more Http header: 
         -> Chunked transfer encoding
         -> If-Modified-Since
       3, Middleware hooks:
-        -> Http Request preprocessor    - DONE
-        -> Http Request postprocessor   - DONE
+        -> Better `RequestRule` encapsulation and make it access able
+            in the http preprocessor(s).
         -> Other hooks.
       3, HttpError with Error traceback for debug usage.
+        -> Catch all or leave some Exc alone.
 """
 
 import os
