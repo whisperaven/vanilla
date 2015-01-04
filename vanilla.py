@@ -106,7 +106,7 @@ class InvokeOnAccessProperty(object):
         self.__doc__ = getattr(object_method, '__doc__')
 
     def __get__(self, instance, cls):
-        """ Magic `get` method for python descriptor protocol. """
+        """ Magic method for python descriptor protocol. """
         rv = self.wrapped_method(instance)
         instance.__dict__[self.wrapped_method.__name__] = rv
         return rv
@@ -147,7 +147,8 @@ class TemplateAdapter(object):
 class Engine(object):
     """ The engine object for create app instance. """
 
-    def __init__(self, appName, appDebug=False,
+    def __init__(self, appName="vanilla.latte", 
+                        appDebug=False,
                         appPrefix=os.getcwd(), 
                         appStatic="static", 
                         appTemplate="templates",
@@ -325,6 +326,7 @@ class Engine(object):
 
         request  = self.http.request
         response = self.http.response
+        buf = response.body
 
         # This is a `HEAD` request.
         if request.method == "HEAD":
@@ -560,8 +562,7 @@ class HttpRequest(object):
         content_data_fp = self.environ.get('wsgi.input', None)
 
         # TODO: Still need handle content-type here, 
-        #   and Http Transfer-Encoding/Chunked support here,
-        #   and this will block forever when invoked more than once.
+        #   and Http Transfer-Encoding/Chunked support here.
         if not content_length:
             content_length = 0
 
