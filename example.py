@@ -25,6 +25,7 @@ MakoTemplateAdapterOptions = {'module_directory': "/tmp/mako_modules",
 # App:
 app = Engine("VanillaExample", 
                 appDebug=False,
+                appCatchExc=True,
                 appStatic="static",
                 appTemplate="templates",
                 appTemplateAdapter=MakoTemplateAdapter,
@@ -70,9 +71,18 @@ def urlarg(arg):
 
 # PostData:
 @app.route("/postdata$", methods=["POST"])
-def upload():
+def post_data():
     data = app.http.request.data
     return app.tpl.render("postdata.tpl", userdata=data)
+
+
+# QueryString:
+@app.route("/qs.*$", methods=["GET"])
+def qs():
+    qs = app.http.request.query_string
+    qd = app.http.request.qs_data
+    print("qd is ", qd)
+    return app.tpl.render("qs.tpl", qs=qs, qd=qd)
 
 
 # AbortRequest:

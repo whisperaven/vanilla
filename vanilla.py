@@ -39,10 +39,12 @@ try:                # Py2
     import httplib
     import __builtin__ as builtins
     from inspect import getargspec as getfullargspec
+    from urlparse import parse_qs
 except ImportError: # Py3
     import http.client as httplib
     import builtins
     from inspect import getfullargspec
+    from urllib.parse import parse_qs
 
 
 ## Compatible issues ##
@@ -55,7 +57,7 @@ else:
 ## Http ##
 _HTTP_PORT   = socket.getservbyname("http")
 _HTTP_METHOD = ["GET", "POST", "PUT", "DELETE", "TRACE",
-                    "CONNECT", "OPTION",]
+                    "CONNECT", "OPTION", "ANY"]
 _HTTP_STATUS = deepcopy(httplib.responses)
 _HTTP_ERROR_PAGE_CONTENT = "<html><title>oops</title>" \
                             "<body>Http Error occurred</body></html>"
@@ -279,7 +281,7 @@ class Engine(object):
             code via `engine.http.response.set_status` if you want a
             specify http status code.
             
-            If you what you want is an error response, you should raise 
+            If what you want is an error response, you should raise 
             the `HttpError` exception instead of use this method. """
         raise HttpAbort(buf)
 
@@ -350,7 +352,8 @@ class Engine(object):
         return _buf
 
     def _make_output(self, buf):
-        """ Parse response buf, make sure response instance WSGI compatible. """
+        """ Parse response buf, 
+                make sure response instance WSGI compatible. """
         
         request  = self.http.request
         response = self.http.response
@@ -415,6 +418,10 @@ class RequestRouter(object):
         #   so we search `GET` table for `HEAD` request.
         if method is 'HEAD':
             return self.match('GET', url)
+
+        # Still not found, search the `ANY` table.
+        if method is not 'ANY':
+            return self.match('ANY', url)
 
         # We got nothing, raise 404 error.
         raise HttpError(404)
@@ -558,8 +565,8 @@ class HttpRequest(object):
         try:
             return self.environ[self._environ_header_key(request_header)]
         except KeyError:
-            raise AttributeError("Request header: %s doesn't not found in request" %
-                                                                    request_header)
+            raise AttributeError("Request header: %s not found in request" %
+                                                                request_header)
 
     ## Process or Thread ##
     @property
@@ -587,6 +594,8 @@ class HttpRequest(object):
         content_type = self.get_header("content-type")
         content_length = self.get_header("content-length")
         content_data_fp = self.environ.get('wsgi.input', None)
+        if not content_data_fp:
+            return "" 
 
         # TODO: Still need handle content-type here, 
         #   and Http Transfer-Encoding/Chunked support here.
@@ -603,6 +612,12 @@ class HttpRequest(object):
             return json.loads(self.data)
         except:
             return {}
+
+    ## User query data ##
+    @property
+    def qs_data(self):
+        """ Parse user query string into stardand python dict. """
+        return parse_qs(self.query_string)
 
 
 ## Http Response ##
