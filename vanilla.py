@@ -8,19 +8,13 @@ Simple web app engine, designed by Hao Feng (whisperaven@gmail.com).
     2, Provide basic http context access (e.g.: request/response/cookie).
     3, Provide basic http tools (e.g.: static file sender).
 
+    TODOs:
+        1, http redirect support.
+        2, request/response access like flask/bottle.
+        3, callback with named variables captured from url.
+
     In fact, I write this just for learn how things work, any 
         suggestions are welcome!
-
-    TODOs:
-      1, WSGI Server Adapter
-      2, Support more Http header/feature: 
-        -> Chunked transfer encoding
-        -> If-Modified-Since
-        -> Cookie
-        -> File upload
-      3, Middleware hooks and a better RequestRule implementation.
-        -> Exception hooks.
-      4, HttpError with Error traceback for debug usage.
 """
 
 import os
@@ -87,7 +81,7 @@ def b2u(string, encoding="utf8", errors="strict"):
         return string
 
 
-## Http Helper Descriptor ##
+## Helper Descriptor (not use) ##
 class InvokeOnAccessProperty(object):
     """ Invoke wrapped object method when first access,
             and use its return value as property on future access. """
@@ -166,7 +160,7 @@ class Engine(object):
 
         self.debug       = appDebug
         self.catch       = appCatchExc
-        self.http        = HttpContext()
+        self.content     = HttpContext()
         self.router      = RequestRouter()
         self.err_handler = dict()
 
@@ -203,7 +197,7 @@ class Engine(object):
         elif not os.path.exists(filepath):
             raise HttpError(404)
 
-        response = self.http.response
+        response = self.content.response
         filestat = os.stat(filepath)
 
         if mime_type is None:
@@ -295,46 +289,46 @@ class Engine(object):
         return response.body
         
     def _request_handler(self, environ):
-        """ Handle request and init request/response instance and return 
+        """ Handle request, init request/response instance and return 
                 response buffer. """
 
-        self.http.request = HttpRequest(environ)
-        self.http.response = HttpResponse()
+        self.content.request = HttpRequest(environ)
+        self.content.response = HttpResponse()
 
         try:
 
-            rule = self.router.match(self.http.request.method, 
-                                            self.http.request.path)
+            rule = self.router.match(self.content.request.method, 
+                                            self.content.request.path)
             # Pre-processor.
-            self.http.rule = rule
+            self.content.rule = rule
             if self.request_preprocessor:
                 for processor in self.request_preprocessor:
                     processor()
 
-            _buf = self.http.rule.make_call(self.http.request.path)
+            _buf = self.content.rule.make_call(self.content.request.path)
             # Post-processor.
-            self.http.response.body = _buf
+            self.content.response.body = _buf
             if self.request_postprocessor:
                 for processor in self.request_postprocessor:
                     processor()
 
-            return self.http.response.body
+            return self.content.response.body
 
         except HttpAbort:
             context = _errno()
             return context.buf
         # Not Found or Forbidden or http error which raised by ourself.
         except HttpError:
-            self.http.response = _errno()
+            self.content.response = _errno()
         # Other unexpected error, treat as http error 500.
         #   TODO: Here needs some trackback object.
         except:
             if not self.catch:
                 raise
-            self.http.response = HttpError(500)
+            self.content.response = HttpError(500)
 
         # something wrong, which means we got http error response:
-        status_code = self.http.response.status_code
+        status_code = self.content.response.status_code
         err_handler = self.err_handler.get(int(status_code), None)
 
         if err_handler:
@@ -343,7 +337,7 @@ class Engine(object):
                 _buf = self.err_handler[int(status_code)]()
             except:     
                 # Error handler raise unexpected error, return default content.
-                self.http.response = HttpError(500)
+                self.content.response = HttpError(500)
                 _buf = _HTTP_ERROR_PAGE_CONTENT
         else:           
             # We don't have error handler defined.
@@ -355,8 +349,8 @@ class Engine(object):
         """ Parse response buf, 
                 make sure response instance WSGI compatible. """
         
-        request  = self.http.request
-        response = self.http.response
+        request  = self.content.request
+        response = self.content.response
 
         # This is a `HEAD` request.
         if request.method == "HEAD":
@@ -483,14 +477,11 @@ class HttpContext(object):
 class HttpRequest(object):
     """ Http Request object, a wrapper of environ dict. """
 
-    ## TODO: make it work with `__slots__` for save space
-    #   Because the descriptor decorator `InvokeOnAccessProperty` needs 
-    #   access the attr `__dict__` when method `request_data` was wrapped, 
-    #   so we can't use `__slots__` here.
-    # __slots__ = ('environ')
+    __slots__ = ('environ', '_data')
 
     def __init__(self, environ):
         """ Wrapper the environ dict. """
+        self._data = None    
         self.environ = environ
 
     @property
@@ -587,9 +578,12 @@ class HttpRequest(object):
         return self.environ.get('wsgi.file_wrapper', None)
 
     ## User post data ##
-    @InvokeOnAccessProperty
+    @property
     def data(self):
         """ Read all request data at once. """
+
+        if self._data:
+            return self._data
 
         content_type = self.get_header("content-type")
         content_length = self.get_header("content-length")
@@ -602,10 +596,11 @@ class HttpRequest(object):
         if not content_length:
             content_length = 0
 
-        return b2u(content_data_fp.read(int(content_length)))
+        self._data = b2u(content_data_fp.read(int(content_length)))
+        return self._data
 
     @property
-    def json_data(self):
+    def json(self):
         """ Dump request data (which should be json here) 
                 into standard python dict. """
         try:
@@ -615,7 +610,7 @@ class HttpRequest(object):
 
     ## User query data ##
     @property
-    def qs_data(self):
+    def qs(self):
         """ Parse user query string into stardand python dict. """
         return parse_qs(self.query_string)
 
@@ -685,10 +680,6 @@ class HttpResponse(object):
     def set_header(self, name, value):
         """ Create or replacing an exists header's value. """
         self.headers[name] = [value]
-
-    def set_content_type(self, mime_type):
-        """ Set the http `Content-Type` header to `mime_type`. """
-        self.set_header("Content-Type", mime_type)
 
 
 ## Http Error Rsponse ##

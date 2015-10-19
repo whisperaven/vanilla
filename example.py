@@ -34,7 +34,7 @@ app = Engine("VanillaExample",
 # Hooks:
 @app.pre_request
 def pre_request_processor():
-    response = app.http.response
+    response = app.content.response
     # If http error, you can't see this header in response.
     #   because the Engine replace the response instance with
     #   a new HttpError instance.
@@ -43,7 +43,7 @@ def pre_request_processor():
 
 @app.post_request
 def post_request_processor():
-    response = app.http.response
+    response = app.content.response
     # You can always see this header in response.
     response.add_header('framework-post-set', 'vanilla')
 
@@ -72,15 +72,15 @@ def urlarg(arg):
 # PostData:
 @app.route("/postdata$", methods=["POST"])
 def post_data():
-    data = app.http.request.data
+    data = app.content.request.data
     return app.tpl.render("postdata.tpl", userdata=data)
 
 
 # QueryString:
 @app.route("/qs.*$", methods=["GET"])
 def qs():
-    qs = app.http.request.query_string
-    qd = app.http.request.qs_data
+    qs = app.content.request.query_string
+    qd = app.content.request.qs_data
     print("qd is ", qd)
     return app.tpl.render("qs.tpl", qs=qs, qd=qd)
 
@@ -95,28 +95,28 @@ def abort():
 @app.error_page(400)
 def error_400_page():
     return app.tpl.render("error_page.tpl", 
-                            error_code = app.http.response.status_code, 
+                            error_code = app.content.response.status_code, 
                             error_reason = "Bad Request")
 
 
 @app.error_page(403)
 def error_403_page():
     return app.tpl.render("error_page.tpl",
-                            error_code = app.http.response.status_code, 
+                            error_code = app.content.response.status_code, 
                             error_reason = "Forbidden")
 
 
 @app.error_page(404)
 def error_404_page():
     return app.tpl.render("error_page.tpl",
-                            error_code = app.http.response.status_code, 
+                            error_code = app.content.response.status_code, 
                             error_reason = "Not Found")
 
 
 @app.error_page(500)
 def error_500_page():
     return app.tpl.render("error_page.tpl", error_code = 500, 
-                            error_reason = app.http.response.body)
+                            error_reason = app.content.response.body)
 
 
 ## WSGI ##
