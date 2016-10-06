@@ -24,8 +24,8 @@ MakoTemplateAdapterOptions = {'module_directory': "/tmp/mako_modules",
         
 # App:
 app = Engine("VanillaExample", 
-                appDebug=False,
-                appCatchExc=False,
+                appDebug=True,
+                appCatchExc=True,
                 appStatic="static",
                 appTemplate="templates",
                 appTemplateAdapter=MakoTemplateAdapter,
@@ -92,6 +92,12 @@ def abort():
     app.abort(tpl.render("index.tpl"))
 
 
+# AsyncResponse:
+@app.route("/async$", methods="GET")
+def async_response():
+    app.async_response(tpl.render("index.tpl"))
+    sleep(5)
+
 # Error Pages:
 @app.error_page(400)
 def error_400_page():
@@ -117,7 +123,7 @@ def error_404_page():
 @app.error_page(500)
 def error_500_page():
     return app.tpl.render("error_page.tpl", error_code = 500, 
-                            error_reason = ctx.response.body)
+                            error_reason = "Internal Server Error")
 
 
 ## WSGI ##

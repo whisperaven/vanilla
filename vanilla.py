@@ -17,10 +17,10 @@ import time
 import json
 import socket
 import mimetypes
-import traceback
 
 from copy import deepcopy
 from threading import local
+from traceback import format_exc
 
 try:                # Py2
     import httplib
@@ -290,6 +290,7 @@ class Engine(object):
                     processor()
 
             _buf = self.content.rule.make_call(self.content.request.path)
+
             # Post-processor.
             self.content.response.body = _buf
             if self.request_postprocessor:
@@ -310,6 +311,8 @@ class Engine(object):
             if not self.catch:
                 raise
             self.content.response = HttpError(500)
+            if self.debug:
+                _buf_exc = format_exc()
 
         # something wrong, which means we got http error response:
         status_code = self.content.response.status_code
@@ -323,11 +326,18 @@ class Engine(object):
                 # Error handler raise unexpected error, return default content.
                 self.content.response = HttpError(500)
                 _buf = _HTTP_ERROR_PAGE_CONTENT
+                if self.debug:
+                    _buf_exc = format_exc()
         else:           
             # We don't have error handler defined.
             _buf = _HTTP_ERROR_PAGE_CONTENT
 
-        return _buf
+        try:
+            # when debug is enabled, unexcept error traceback
+            #   will override the error handler for http 500.
+            return _buf_exc
+        except NameError:
+            return _buf
 
     def _make_output(self, buf):
         """ Parse response buf, 
