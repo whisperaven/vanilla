@@ -81,23 +81,6 @@ def b2u(string, encoding="utf8", errors="strict"):
         return string
 
 
-## Helper Descriptor (not use) ##
-class InvokeOnAccessProperty(object):
-    """ Invoke wrapped object method when first access,
-            and use its return value as property on future access. """
-
-    def __init__(self, object_method):
-        """ Wrap up the object method. """
-        self.wrapped_method = object_method
-        self.__doc__ = getattr(object_method, '__doc__')
-
-    def __get__(self, instance, cls):
-        """ Magic method for python descriptor protocol. """
-        rv = self.wrapped_method(instance)
-        instance.__dict__[self.wrapped_method.__name__] = rv
-        return rv
-
-
 ## Exception ##
 class VanillaError(Exception):
     """ Base Exception for everything. """
@@ -184,6 +167,14 @@ class Engine(object):
     def __call__(self, environ, start_response):
         """ WSGI compatible callable object. """
         return self.wsgi(environ, start_response)
+
+    def get_tpl(self):
+        """ Return the Template Reader Object of this instance. """
+        return self.tpl
+
+    def get_ctx(self):
+        """ Return the Http Content Object of this instance. """
+        return self.content
 
     def ssfile(self, filepath, mime_type=None, prefix=None):
         """ Static file sender. """
@@ -397,7 +388,6 @@ class RequestRouter(object):
                 raise RouterError("Request method %s "
                                         "for callback %s not supported." % 
                                                 (method, callback.__name__))
-
             rule = RequestRule(regex, callback)
             self.method_table[method].append(rule)
 
@@ -644,7 +634,7 @@ class HttpResponse(object):
     def header_fields(self):
         """ WSGI compatible list contain all response header fields. """
 
-        header_fields = list()
+        header_fields = []
         if "Content-Type" not in self.headers.keys():
             header_fields.append(("Context-Type", self.default_content_type))
 
@@ -674,7 +664,7 @@ class HttpResponse(object):
         """ Add a response header to response 
                 but doesn't check for duplicates. """
         if name not in self.headers.keys():
-            self.headers[name] = list()
+            self.headers[name] = []
         self.headers[name].append(value)
 
     def set_header(self, name, value):

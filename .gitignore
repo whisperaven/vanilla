@@ -6,4 +6,5 @@ __pycache__/
 
 # Misc:
 *.swp
-tz*/
+py3-env/
+py-env/

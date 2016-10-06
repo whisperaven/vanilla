@@ -25,16 +25,18 @@ MakoTemplateAdapterOptions = {'module_directory': "/tmp/mako_modules",
 # App:
 app = Engine("VanillaExample", 
                 appDebug=False,
-                appCatchExc=True,
+                appCatchExc=False,
                 appStatic="static",
                 appTemplate="templates",
                 appTemplateAdapter=MakoTemplateAdapter,
                 appTemplateAdapterOptions=MakoTemplateAdapterOptions)
+ctx = app.get_ctx()
+tpl = app.get_tpl()
 
 # Hooks:
 @app.pre_request
 def pre_request_processor():
-    response = app.content.response
+    response = ctx.response
     # If http error, you can't see this header in response.
     #   because the Engine replace the response instance with
     #   a new HttpError instance.
@@ -43,7 +45,7 @@ def pre_request_processor():
 
 @app.post_request
 def post_request_processor():
-    response = app.content.response
+    response = ctx.response
     # You can always see this header in response.
     response.add_header('framework-post-set', 'vanilla')
 
@@ -58,7 +60,7 @@ def static_files(filename):
 #   You specify methods via `methods`, accept both `list` and `str`.
 @app.route("/index$", methods="GET")
 def index():
-    return app.tpl.render("index.tpl")
+    return tpl.render("index.tpl")
 # Also work: 
 #   app.route("/index$", method = "GET", callback = index)
 
@@ -66,57 +68,57 @@ def index():
 # UrlArgs:
 @app.route("/urlarg/(.*)$")
 def urlarg(arg):
-    return app.tpl.render("urlarg.tpl", argstr=arg)
+    return tpl.render("content.tpl", datastr=arg)
 
 
 # PostData:
 @app.route("/postdata$", methods=["POST"])
 def post_data():
-    data = app.content.request.data
-    return app.tpl.render("postdata.tpl", userdata=data)
+    data = ctx.request.data
+    return tpl.render("content.tpl", datastr=data)
 
 
 # QueryString:
 @app.route("/qs.*$", methods=["GET"])
 def qs():
-    qs = app.content.request.query_string
-    qd = app.content.request.qs_data
+    qs = ctx.request.query_string
+    qd = ctx.request.qs_data
     print("qd is ", qd)
-    return app.tpl.render("qs.tpl", qs=qs, qd=qd)
+    return tpl.render("qs.tpl", qs=qs, qd=qd)
 
 
 # AbortRequest:
 @app.route("/abort$", methods="GET")
 def abort():
-    app.abort(app.tpl.render("abort.tpl"))
+    app.abort(tpl.render("index.tpl"))
 
 
 # Error Pages:
 @app.error_page(400)
 def error_400_page():
-    return app.tpl.render("error_page.tpl", 
-                            error_code = app.content.response.status_code, 
+    return tpl.render("error_page.tpl", 
+                            error_code = ctx.response.status_code, 
                             error_reason = "Bad Request")
 
 
 @app.error_page(403)
 def error_403_page():
     return app.tpl.render("error_page.tpl",
-                            error_code = app.content.response.status_code, 
+                            error_code = ctx.response.status_code, 
                             error_reason = "Forbidden")
 
 
 @app.error_page(404)
 def error_404_page():
     return app.tpl.render("error_page.tpl",
-                            error_code = app.content.response.status_code, 
+                            error_code = ctx.response.status_code, 
                             error_reason = "Not Found")
 
 
 @app.error_page(500)
 def error_500_page():
     return app.tpl.render("error_page.tpl", error_code = 500, 
-                            error_reason = app.content.response.body)
+                            error_reason = ctx.response.body)
 
 
 ## WSGI ##
