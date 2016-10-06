@@ -2,19 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """ 
-Simple web app engine, designed by Hao Feng (whisperaven@gmail.com).
+Simple web app engine, developed by Hao Feng (whisperaven@gmail.com).
 
     1, Provide basic request dispatching.
     2, Provide basic http context access (e.g.: request/response/cookie).
     3, Provide basic http tools (e.g.: static file sender).
 
-    TODOs:
-        1, http redirect support.
-        2, request/response access like flask/bottle.
-        3, callback with named variables captured from url.
-
-    In fact, I write this just for learn how things work, any 
-        suggestions are welcome!
 """
 
 import os

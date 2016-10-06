@@ -81,10 +81,9 @@ def post_data():
 # QueryString:
 @app.route("/qs.*$", methods=["GET"])
 def qs():
-    qs = ctx.request.query_string
-    qd = ctx.request.qs_data
-    print("qd is ", qd)
-    return tpl.render("qs.tpl", qs=qs, qd=qd)
+    raw_qs = ctx.request.query_string
+    qs = ctx.request.qs
+    return tpl.render("qs.tpl", qs=raw_qs, qd=qs)
 
 
 # AbortRequest:
