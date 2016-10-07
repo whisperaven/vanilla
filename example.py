@@ -92,11 +92,11 @@ def abort():
     app.abort(tpl.render("index.tpl"))
 
 
-# AsyncResponse:
-@app.route("/async$", methods="GET")
-def async_response():
-    app.async_response(tpl.render("index.tpl"))
-    sleep(5)
+# TODO: AsyncResponse 
+# @app.route("/async$", methods="GET")
+# def async_response():
+#     app.async_response(tpl.render("index.tpl"))
+#     sleep(5)
 
 # Error Pages:
 @app.error_page(400)
@@ -110,14 +110,14 @@ def error_400_page():
 def error_403_page():
     return app.tpl.render("error_page.tpl",
                             error_code = ctx.response.status_code, 
-                            error_reason = "Forbidden")
+                            error_reason = ctx.response.status_line)
 
 
 @app.error_page(404)
 def error_404_page():
     return app.tpl.render("error_page.tpl",
                             error_code = ctx.response.status_code, 
-                            error_reason = "Not Found")
+                            error_reason = ctx.response.status_line)
 
 
 @app.error_page(500)

@@ -86,7 +86,6 @@ class EngineError(VanillaError):
 
 class HttpAbort(EngineError):
     """ Abort the current http process. 
-        
         See doc str of `Engine.abort` for more detail. """
 
     def __init__(self, buf=""):
@@ -306,13 +305,14 @@ class Engine(object):
         except HttpError:
             self.content.response = _errno()
         # Other unexpected error, treat as http error 500.
-        #   TODO: Here needs some trackback object.
         except:
             if not self.catch:
                 raise
             self.content.response = HttpError(500)
+            # when debug is enabled, unexcept error traceback
+            #   will override the error handler for http 500.
             if self.debug:
-                _buf_exc = format_exc()
+                return format_exc()
 
         # something wrong, which means we got http error response:
         status_code = self.content.response.status_code
@@ -325,19 +325,15 @@ class Engine(object):
             except:     
                 # Error handler raise unexpected error, return default content.
                 self.content.response = HttpError(500)
-                _buf = _HTTP_ERROR_PAGE_CONTENT
                 if self.debug:
-                    _buf_exc = format_exc()
+                    return format_exc()
+                else:
+                    _buf = _HTTP_ERROR_PAGE_CONTENT
         else:           
             # We don't have error handler defined.
             _buf = _HTTP_ERROR_PAGE_CONTENT
 
-        try:
-            # when debug is enabled, unexcept error traceback
-            #   will override the error handler for http 500.
-            return _buf_exc
-        except NameError:
-            return _buf
+        return _buf
 
     def _make_output(self, buf):
         """ Parse response buf, 
@@ -388,9 +384,8 @@ class RequestRouter(object):
         for method in methods:
             method = method.upper()
             if method not in _HTTP_METHOD:
-                raise RouterError("Request method %s "
-                                        "for callback %s not supported." % 
-                                                (method, callback.__name__))
+                raise RouterError("Request method {0} for callback "
+                    "{1} not supported.".format(method, callback.__name__))
             rule = RequestRule(regex, callback)
             self.method_table[method].append(rule)
 
@@ -459,7 +454,7 @@ class HttpContext(object):
         try:
             return self.thread_ctx.__dict__[name]
         except KeyError:
-            raise AttributeError("%s, no such context" % name)
+            raise AttributeError("{0}, no such context".format(name))
 
     def __setattr__(self, name, value):
         """ Associate http context. """
@@ -549,8 +544,8 @@ class HttpRequest(object):
         try:
             return self.environ[self._environ_header_key(request_header)]
         except KeyError:
-            raise AttributeError("Request header: %s not found in request" %
-                                                                request_header)
+            raise AttributeError("Request header: {0} "
+                "not found in request".format(request_header))
 
     ## Process or Thread ##
     @property
@@ -629,9 +624,9 @@ class HttpResponse(object):
     def status_line(self):
         """ Build/Return a http `Status-Line`. """
         try:
-            return "%d %s" % (self.status, _HTTP_STATUS[self.status])
+            return "{0} {1}".format(self.status, _HTTP_STATUS[self.status])
         except KeyError:
-            return "%d Unknown Status" % self.status
+            return "{0} Unknown Status".format(self.status)
 
     @property
     def header_fields(self):
@@ -652,7 +647,7 @@ class HttpResponse(object):
             self.status = int(status_code)
         except ValueError:
             err = _errno()
-            err.message = "Bad Status Code %s" % status_code
+            err.message = "Bad Status Code {0}".format(status_code)
             raise err
 
     def get_header(self, name):
